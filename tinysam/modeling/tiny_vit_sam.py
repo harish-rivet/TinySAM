@@ -55,7 +55,7 @@ class DropPath(TimmDropPath):
 
 
 class PatchEmbed(nn.Module):
-    def __init__(self, in_chans, embed_dim, resolution, activation):
+    def __init__(self, in_chans, embed_dim, resolution, activation): # (3, 64, 512, <class 'torch.nn.modules.activation.GELU'>), 512 or whatever the image size is
         super().__init__()
         img_size: Tuple[int, int] = to_2tuple(resolution)
         self.patches_resolution = (img_size[0] // 4, img_size[1] // 4)
@@ -65,9 +65,9 @@ class PatchEmbed(nn.Module):
         self.embed_dim = embed_dim
         n = embed_dim
         self.seq = nn.Sequential(
-            Conv2d_BN(in_chans, n // 2, 3, 2, 1),
+            Conv2d_BN(in_chans, n // 2, ks=3, stride=2, pad=1),
             activation(),
-            Conv2d_BN(n // 2, n, 3, 2, 1),
+            Conv2d_BN(n // 2, n, ks=3, stride=2, pad=1),
         )
 
     def forward(self, x):
@@ -459,6 +459,8 @@ class LayerNorm2d(nn.Module):
         x = (x - u) / torch.sqrt(s + self.eps)
         x = self.weight[:, None, None] * x + self.bias[:, None, None]
         return x
+    
+    
 class TinyViT(nn.Module):
     def __init__(self, img_size=224, in_chans=3, num_classes=1000,
                  embed_dims=[96, 192, 384, 768], depths=[2, 2, 6, 2],
@@ -599,15 +601,17 @@ class TinyViT(nn.Module):
 
     def forward_features(self, x):
         # x: (N, C, H, W)
-        x = self.patch_embed(x)
+        x = self.patch_embed(x) # Input: (1, 3, 512, 512) -> Output: (1, 64, 128, 128)
 
-        x = self.layers[0](x)
+        # len(self.layers) = 4
+        x = self.layers[0](x) # Input: (1, 64, 128, 128) -> Output: (1, 4096, 128)[eq to (1, 128, 64, 64)]
         start_i = 1
 
         for i in range(start_i, len(self.layers)):
+            # (1, 4096, 128) -> (1, 1024, 160) -> (1, 1024, 320) -> (1, 1024, 320)
             layer = self.layers[i]
             x = layer(x)
-        B,_,C=x.size()
+        B,_,C=x.size() # 1, _, 320
         x = x.view(B, 64, 64, C)
         x=x.permute(0, 3, 1, 2)
         x=self.neck(x)

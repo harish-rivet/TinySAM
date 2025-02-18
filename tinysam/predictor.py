@@ -29,6 +29,7 @@ class SamPredictor:
         super().__init__()
         self.model = sam_model
         self.transform = ResizeLongestSide(sam_model.image_encoder.img_size)
+        print(f"--------------------------------------- type(sam_model.image_encoder): {type(sam_model.image_encoder)}")
         self.reset_image()
 
     def set_image(
@@ -49,13 +50,26 @@ class SamPredictor:
             "RGB",
             "BGR",
         ], f"image_format must be in ['RGB', 'BGR'], is {image_format}."
+        print(f"image_format: {image_format}, model.image_format: {self.model.image_format}")
+        # image_format: RGB, model.image_format: RGB
         if image_format != self.model.image_format:
+            print(f"Converting image format from {image_format} to {self.model.image_format}")
             image = image[..., ::-1]
 
         # Transform the image to the form expected by the model
+        print(f"type(image): {type(image)}, image.shape: {image.shape}, image.dtype: {image.dtype}")
+        # type(image): <class 'numpy.ndarray'>, image.shape: (770, 769, 3), image.dtype: uint8
         input_image = self.transform.apply_image(image)
+        print(f"type(input_image): {type(input_image)}, input_image.shape: {input_image.shape}, input_image.dtype: {input_image.dtype}")
+        # type(input_image): <class 'numpy.ndarray'>, input_image.shape: (1024, 1023, 3), input_image.dtype: uint8
+        
         input_image_torch = torch.as_tensor(input_image, device=self.device)
+        print(f"type(input_image_torch): {type(input_image_torch)}, input_image_torch.shape: {input_image_torch.shape}, input_image_torch.dtype: {input_image_torch.dtype}")
+        # type(input_image_torch): <class 'torch.Tensor'>, input_image_torch.shape: torch.Size([1024, 1023, 3]), input_image_torch.dtype: torch.uint8
+        
         input_image_torch = input_image_torch.permute(2, 0, 1).contiguous()[None, :, :, :]
+        print(f"type(input_image_torch): {type(input_image_torch)}, input_image_torch.shape: {input_image_torch.shape}, input_image_torch.dtype: {input_image_torch.dtype}")
+        # type(input_image_torch): <class 'torch.Tensor'>, input_image_torch.shape: torch.Size([1, 3, 1024, 1023]), input_image_torch.dtype: torch.uint8
 
         self.set_torch_image(input_image_torch, image.shape[:2])
 
@@ -81,13 +95,32 @@ class SamPredictor:
             and transformed_image.shape[1] == 3
             and max(*transformed_image.shape[2:]) == self.model.image_encoder.img_size
         ), f"set_torch_image input must be BCHW with long side {self.model.image_encoder.img_size}."
+        print(f"self.model.image_encoder.img_size: {self.model.image_encoder.img_size}")
+        # self.model.image_encoder.img_size: 1024
+
         self.reset_image()
 
         self.original_size = original_image_size
         self.input_size = tuple(transformed_image.shape[-2:])
         #import pdb; pdb.set_trace()
+
+        print(f"type(transformed_image): {type(transformed_image)}, transformed_image.shape: {transformed_image.shape}, transformed_image.dtype: {transformed_image.dtype}")
+        print(f"transformed_image stats: {transformed_image.min()}, {transformed_image.max()}")
+        # type(transformed_image): <class 'torch.Tensor'>, transformed_image.shape: torch.Size([1, 3, 1024, 1023]), transformed_image.dtype: torch.uint8
+        # transformed_image stats: 0, 255
+
         input_image = self.model.preprocess(transformed_image)
+        print(f"type(input_image): {type(input_image)}, input_image.shape: {input_image.shape}, input_image.dtype: {input_image.dtype}")
+        print(f"input_image stats: {input_image.min()}, {input_image.max()}, {input_image.mean()}, {input_image.std()}")
+        # type(input_image): <class 'torch.Tensor'>, input_image.shape: torch.Size([1, 3, 1024, 1024]), input_image.dtype: torch.float32
+        # input_image stats: -2.1179039478302, 2.640000104904175, -0.8746919631958008, 1.1415202617645264
+
         self.features = self.model.image_encoder(input_image)
+        print(f"type(self.features): {type(self.features)}, self.features.shape: {self.features.shape}, self.features.dtype: {self.features.dtype}")
+        print(f"self.features stats: {self.features.min()}, {self.features.max()}, {self.features.mean()}, {self.features.std()}")
+        # type(self.features): <class 'torch.Tensor'>, self.features.shape: torch.Size([1, 256, 64, 64]), self.features.dtype: torch.float32
+        # self.features stats: -0.5668673515319824, 0.5933086276054382, -0.0027949227951467037, 0.09641970694065094
+
         self.is_image_set = True
 
     def predict(
@@ -145,6 +178,9 @@ class SamPredictor:
             mask_input_torch = torch.as_tensor(mask_input, dtype=torch.float, device=self.device)
             mask_input_torch = mask_input_torch[None, :, :, :]
 
+        print(f"coords_torch: {coords_torch}, labels_torch: {labels_torch}, box_torch: {box_torch}, mask_input_torch: {mask_input_torch}")
+        # coords_torch: tensor([[[532.1196, 531.9481]]], device='cuda:0'), labels_torch: tensor([[1]], device='cuda:0', dtype=torch.int32), box_torch: None, mask_input_torch: None
+
         masks, iou_predictions, low_res_masks = self.predict_torch(
             coords_torch,
             labels_torch,
@@ -152,6 +188,13 @@ class SamPredictor:
             mask_input_torch,
             return_logits=return_logits,
         )
+
+        print(f"type(masks): {type(masks)}, masks.shape: {masks.shape}, masks.dtype: {masks.dtype}")
+        print(f"type(iou_predictions): {type(iou_predictions)}, iou_predictions.shape: {iou_predictions.shape}, iou_predictions.dtype: {iou_predictions.dtype}")
+        print(f"type(low_res_masks): {type(low_res_masks)}, low_res_masks.shape: {low_res_masks.shape}, low_res_masks.dtype: {low_res_masks.dtype}")
+        # type(masks): <class 'torch.Tensor'>, masks.shape: torch.Size([1, 3, 770, 769]), masks.dtype: torch.bool
+        # type(iou_predictions): <class 'torch.Tensor'>, iou_predictions.shape: torch.Size([1, 3]), iou_predictions.dtype: torch.float32
+        # type(low_res_masks): <class 'torch.Tensor'>, low_res_masks.shape: torch.Size([1, 3, 256, 256]), low_res_masks.dtype: torch.float32
 
         masks_np = masks[0].detach().cpu().numpy()
         iou_predictions_np = iou_predictions[0].detach().cpu().numpy()
@@ -211,6 +254,11 @@ class SamPredictor:
             masks=mask_input,
         )
 
+        print(f"type(sparse_embeddings): {type(sparse_embeddings)}, sparse_embeddings.shape: {sparse_embeddings.shape}, sparse_embeddings.dtype: {sparse_embeddings.dtype}")
+        print(f"type(dense_embeddings): {type(dense_embeddings)}, dense_embeddings.shape: {dense_embeddings.shape}, dense_embeddings.dtype: {dense_embeddings.dtype}")
+        # type(sparse_embeddings): <class 'torch.Tensor'>, sparse_embeddings.shape: torch.Size([1, 2, 256]), sparse_embeddings.dtype: torch.float32
+        # type(dense_embeddings): <class 'torch.Tensor'>, dense_embeddings.shape: torch.Size([1, 256, 64, 64]), dense_embeddings.dtype: torch.float32
+
         # Predict masks
         low_res_masks, iou_predictions = self.model.mask_decoder(
             image_embeddings=self.features,
@@ -219,11 +267,22 @@ class SamPredictor:
             dense_prompt_embeddings=dense_embeddings,
         )
 
+        print(f"type(low_res_masks): {type(low_res_masks)}, low_res_masks.shape: {low_res_masks.shape}, low_res_masks.dtype: {low_res_masks.dtype}")
+        print(f"type(iou_predictions): {type(iou_predictions)}, iou_predictions.shape: {iou_predictions.shape}, iou_predictions.dtype: {iou_predictions.dtype}")
+        # type(low_res_masks): <class 'torch.Tensor'>, low_res_masks.shape: torch.Size([1, 3, 256, 256]), low_res_masks.dtype: torch.float32
+        # type(iou_predictions): <class 'torch.Tensor'>, iou_predictions.shape: torch.Size([1, 3]), iou_predictions.dtype: torch.float32
+
         # Upscale the masks to the original image resolution
         masks = self.model.postprocess_masks(low_res_masks, self.input_size, self.original_size)
 
+        print(f"type(masks): {type(masks)}, masks.shape: {masks.shape}, masks.dtype: {masks.dtype}")
+        # type(masks): <class 'torch.Tensor'>, masks.shape: torch.Size([1, 3, 770, 769]), masks.dtype: torch.float32
+
         if not return_logits:
             masks = masks > self.model.mask_threshold
+
+        print(f"'After masks > threshold' type(masks): {type(masks)}, masks.shape: {masks.shape}, masks.dtype: {masks.dtype}")
+        # 'After masks > threshold' type(masks): <class 'torch.Tensor'>, masks.shape: torch.Size([1, 3, 770, 769]), masks.dtype: torch.bool
 
         return masks, iou_predictions, low_res_masks
 

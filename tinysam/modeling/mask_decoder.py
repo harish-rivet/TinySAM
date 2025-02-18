@@ -117,23 +117,27 @@ class MaskDecoder(nn.Module):
         tokens = torch.cat((output_tokens, sparse_prompt_embeddings), dim=1)
 
         # Expand per-image data in batch direction to be per-mask
+        # image_embeddings.shape: torch.Size([1, 256, 64, 64]), dense_prompt_embeddings.shape: torch.Size([1, 256, 64, 64])
+        # tokens.shape: torch.Size([1, 7, 256]), image_pe.shape: torch.Size([1, 256, 64, 64])
         src = torch.repeat_interleave(image_embeddings, tokens.shape[0], dim=0)
+        # src.shape: torch.Size([1, 256, 64, 64])
         src = src + dense_prompt_embeddings
         pos_src = torch.repeat_interleave(image_pe, tokens.shape[0], dim=0)
+        # pos_src.shape: torch.Size([1, 256, 64, 64])
         b, c, h, w = src.shape
 
         # Run the transformer
-        hs, src = self.transformer(src, pos_src, tokens)
+        hs, src = self.transformer(src, pos_src, tokens) # hs.shape: torch.Size([1, 7, 256]), src.shape: torch.Size([1, 256, 64, 64])
         iou_token_out = hs[:, 0, :]
-        mask_tokens_out = hs[:, 1 : (1 + self.num_mask_tokens), :]
+        mask_tokens_out = hs[:, 1 : (1 + self.num_mask_tokens), :] # mask_tokens_out.shape: torch.Size([1, 4, 256]), self.num_mask_tokens: 4
 
         # Upscale mask embeddings and predict masks using the mask tokens
         src = src.transpose(1, 2).view(b, c, h, w)
-        upscaled_embedding = self.output_upscaling(src)
+        upscaled_embedding = self.output_upscaling(src) # upscaled_embedding.shape: torch.Size([1, 32, 256, 256])
         hyper_in_list: List[torch.Tensor] = []
-        for i in range(self.num_mask_tokens):
+        for i in range(self.num_mask_tokens): # self.num_mask_tokens: 4
             hyper_in_list.append(self.output_hypernetworks_mlps[i](mask_tokens_out[:, i, :]))
-        hyper_in = torch.stack(hyper_in_list, dim=1)
+        hyper_in = torch.stack(hyper_in_list, dim=1) # hyper_in.shape: torch.Size([1, 4, 32])
         b, c, h, w = upscaled_embedding.shape
         masks = (hyper_in @ upscaled_embedding.view(b, c, h * w)).view(b, -1, h, w)
 
